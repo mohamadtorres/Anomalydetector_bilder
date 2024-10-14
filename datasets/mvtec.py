@@ -168,46 +168,58 @@ class MVTecDataset(torch.utils.data.Dataset):
         return transform_aug
 
     def __getitem__(self, idx):
-        classname, anomaly, image_path, mask_path = self.data_to_iterate[idx]
-        image = PIL.Image.open(image_path).convert("RGB")
-        image = self.transform_img(image)
+      classname, anomaly, image_path, mask_path = self.data_to_iterate[idx]
+      image = PIL.Image.open(image_path).convert("RGB")
+      image = self.transform_img(image)
 
-        mask_fg = mask_s = aug_image = torch.tensor([1])
-        if self.split == DatasetSplit.TRAIN:
-            aug = PIL.Image.open(np.random.choice(self.anomaly_source_paths)).convert("RGB")
-            if self.rand_aug:
-                transform_aug = self.rand_augmenter()
-                aug = transform_aug(aug)
-            else:
-                aug = self.transform_img(aug)
+      mask_fg = mask_s = aug_image = torch.tensor([1])
+      if self.split == DatasetSplit.TRAIN:
+          if not self.anomaly_source_paths:
+              aug = image  # Om inga anomalibilder finns, använd den ursprungliga bilden
+          else:
+              aug = PIL.Image.open(np.random.choice(self.anomaly_source_paths)).convert("RGB")
 
-            if self.class_fg:
-                fgmask_path = image_path.split(classname)[0] + 'fg_mask/' + classname + '/' + os.path.split(image_path)[-1]
-                mask_fg = PIL.Image.open(fgmask_path)
-                mask_fg = torch.ceil(self.transform_mask(mask_fg)[0])
+          if self.rand_aug:
+              if isinstance(aug, PIL.Image.Image):
+                  transform_aug = self.rand_augmenter()
+                  aug = transform_aug(aug)
+          else:
+              if isinstance(aug, PIL.Image.Image):
+                  aug = self.transform_img(aug)
 
-            mask_all = perlin_mask(image.shape, self.imgsize // 8, 0, 6, mask_fg, 1)
-            mask_s = torch.from_numpy(mask_all[0])
-            mask_l = torch.from_numpy(mask_all[1])
+          if self.class_fg:
+              fgmask_path = image_path.split(classname)[0] + 'fg_mask/' + classname + '/' + os.path.split(image_path)[-1]
+              if os.path.exists(fgmask_path):
+                  mask_fg = PIL.Image.open(fgmask_path)
+                  mask_fg = torch.ceil(self.transform_mask(mask_fg)[0])
+              else:
+                  mask_fg = torch.zeros(image.size()[1:])
 
-            beta = np.random.normal(loc=self.mean, scale=self.std)
-            beta = np.clip(beta, .2, .8)
-            aug_image = image * (1 - mask_l) + (1 - beta) * aug * mask_l + beta * image * mask_l
+          mask_all = perlin_mask(image.shape, self.imgsize // 8, 0, 6, mask_fg, 1)
+          mask_s = torch.from_numpy(mask_all[0])
+          mask_l = torch.from_numpy(mask_all[1])
 
-        if self.split == DatasetSplit.TEST and mask_path is not None:
-            mask_gt = PIL.Image.open(mask_path).convert('L')
-            mask_gt = self.transform_mask(mask_gt)
-        else:
-            mask_gt = torch.zeros([1, *image.size()[1:]])
+          beta = np.random.normal(loc=self.mean, scale=self.std)
+          beta = np.clip(beta, .2, .8)
+          aug_image = image * (1 - mask_l) + (1 - beta) * aug * mask_l + beta * image * mask_l
 
-        return {
-            "image": image,
-            "aug": aug_image,
-            "mask_s": mask_s,
-            "mask_gt": mask_gt,
-            "is_anomaly": int(anomaly != "good"),
-            "image_path": image_path,
-        }
+      if self.split == DatasetSplit.TEST and mask_path is not None:
+          mask_gt = PIL.Image.open(mask_path).convert('L')
+          mask_gt = self.transform_mask(mask_gt)
+      else:
+          mask_gt = torch.zeros([1, *image.size()[1:]])
+
+      return {
+          "image": image,
+          "aug": aug_image,
+          "mask_s": mask_s,
+          "mask_gt": mask_gt,
+          "is_anomaly": int(anomaly != "good"),
+          "image_path": image_path,
+      }
+
+
+
 
     def __len__(self):
         return len(self.data_to_iterate)

@@ -39,6 +39,15 @@ class GLASS(torch.nn.Module):
         super(GLASS, self).__init__()
         self.device = device
 
+    def set_model_dir(self, model_dir, dataset_name):
+        self.model_dir = model_dir
+        os.makedirs(self.model_dir, exist_ok=True)
+        self.ckpt_dir = os.path.join(self.model_dir, dataset_name)
+        os.makedirs(self.ckpt_dir, exist_ok=True)
+        self.tb_dir = os.path.join(self.ckpt_dir, "tb")
+        os.makedirs(self.tb_dir, exist_ok=True)
+        self.logger = TBWrapper(self.tb_dir)
+
     def load(
             self,
             backbone,
@@ -124,151 +133,143 @@ class GLASS(torch.nn.Module):
         self.dataset_name = ""
         self.logger = None
 
-def set_model_dir(self, model_dir, dataset_name):
-    self.model_dir = model_dir
-    os.makedirs(self.model_dir, exist_ok=True)
-    self.ckpt_dir = os.path.join(self.model_dir, dataset_name)
-    os.makedirs(self.ckpt_dir, exist_ok=True)
-    self.tb_dir = os.path.join(self.ckpt_dir, "tb")
-    os.makedirs(self.tb_dir, exist_ok=True)
-    self.logger = TBWrapper(self.tb_dir)
 
-def _embed(self, images, detach=True, provide_patch_shapes=False, evaluation=False):
-    """Returns feature embeddings for images."""
-    if not evaluation and self.train_backbone:
-        self.forward_modules["feature_aggregator"].train()
-        features = self.forward_modules["feature_aggregator"](images, eval=evaluation)
-    else:
-        self.forward_modules["feature_aggregator"].eval()
-        with torch.no_grad():
-            features = self.forward_modules["feature_aggregator"](images)
+    def _embed(self, images, detach=True, provide_patch_shapes=False, evaluation=False):
+      """Returns feature embeddings for images."""
+      if not evaluation and self.train_backbone:
+          self.forward_modules["feature_aggregator"].train()
+          features = self.forward_modules["feature_aggregator"](images, eval=evaluation)
+      else:
+          self.forward_modules["feature_aggregator"].eval()
+          with torch.no_grad():
+              features = self.forward_modules["feature_aggregator"](images)
 
-    features = [features[layer] for layer in self.layers_to_extract_from]
+      features = [features[layer] for layer in self.layers_to_extract_from]
 
-    for i, feat in enumerate(features):
-        if len(feat.shape) == 3:
-            B, L, C = feat.shape
-            features[i] = feat.reshape(B, int(math.sqrt(L)), int(math.sqrt(L)), C).permute(0, 3, 1, 2)
+      for i, feat in enumerate(features):
+          if len(feat.shape) == 3:
+              B, L, C = feat.shape
+              features[i] = feat.reshape(B, int(math.sqrt(L)), int(math.sqrt(L)), C).permute(0, 3, 1, 2)
 
-    features = [self.patch_maker.patchify(x, return_spatial_info=True) for x in features]
-    patch_shapes = [x[1] for x in features]
-    patch_features = [x[0] for x in features]
-    ref_num_patches = patch_shapes[0]
+      features = [self.patch_maker.patchify(x, return_spatial_info=True) for x in features]
+      patch_shapes = [x[1] for x in features]
+      patch_features = [x[0] for x in features]
+      ref_num_patches = patch_shapes[0]
 
-    for i in range(1, len(patch_features)):
-        _features = patch_features[i]
-        patch_dims = patch_shapes[i]
+      for i in range(1, len(patch_features)):
+          _features = patch_features[i]
+          patch_dims = patch_shapes[i]
 
-        _features = _features.reshape(
-            _features.shape[0], patch_dims[0], patch_dims[1], *_features.shape[2:]
-        )
-        _features = _features.permute(0, -3, -2, -1, 1, 2)
-        perm_base_shape = _features.shape
-        _features = _features.reshape(-1, *_features.shape[-2:])
-        _features = F.interpolate(
-            _features.unsqueeze(1),
-            size=(ref_num_patches[0], ref_num_patches[1]),
-            mode="bilinear",
-            align_corners=False,
-        )
-        _features = _features.squeeze(1)
-        _features = _features.reshape(
-            *perm_base_shape[:-2], ref_num_patches[0], ref_num_patches[1]
-        )
-        _features = _features.permute(0, -2, -1, 1, 2, 3)
-        _features = _features.reshape(len(_features), -1, *_features.shape[-3:])
-        patch_features[i] = _features
+          _features = _features.reshape(
+              _features.shape[0], patch_dims[0], patch_dims[1], *_features.shape[2:]
+          )
+          _features = _features.permute(0, -3, -2, -1, 1, 2)
+          perm_base_shape = _features.shape
+          _features = _features.reshape(-1, *_features.shape[-2:])
+          _features = F.interpolate(
+              _features.unsqueeze(1),
+              size=(ref_num_patches[0], ref_num_patches[1]),
+              mode="bilinear",
+              align_corners=False,
+          )
+          _features = _features.squeeze(1)
+          _features = _features.reshape(
+              *perm_base_shape[:-2], ref_num_patches[0], ref_num_patches[1]
+          )
+          _features = _features.permute(0, -2, -1, 1, 2, 3)
+          _features = _features.reshape(len(_features), -1, *_features.shape[-3:])
+          patch_features[i] = _features
 
-    patch_features = [x.reshape(-1, *x.shape[-3:]) for x in patch_features]
-    patch_features = self.forward_modules["preprocessing"](patch_features)
-    patch_features = self.forward_modules["preadapt_aggregator"](patch_features)
+      patch_features = [x.reshape(-1, *x.shape[-3:]) for x in patch_features]
+      patch_features = self.forward_modules["preprocessing"](patch_features)
+      patch_features = self.forward_modules["preadapt_aggregator"](patch_features)
 
-    return patch_features, patch_shapes
+      return patch_features, patch_shapes
 
-def trainer(self, training_data, val_data, name):
-    state_dict = {}
-    ckpt_path = glob.glob(self.ckpt_dir + '/ckpt_best*')
-    ckpt_path_save = os.path.join(self.ckpt_dir, "ckpt.pth")
-    if len(ckpt_path) != 0:
-        LOGGER.info("Start testing, ckpt file found!")
-        return 0., 0., 0., 0., 0., -1.
+    def trainer(self, training_data, val_data, name):
+        state_dict = {}
+        ckpt_path = glob.glob(self.ckpt_dir + '/ckpt_best*')
+        ckpt_path_save = os.path.join(self.ckpt_dir, "ckpt.pth")
+        if len(ckpt_path) != 0:
+            LOGGER.info("Start testing, ckpt file found!")
+            return 0., 0., 0., 0., 0., -1.
 
-    def update_state_dict():
-        state_dict["discriminator"] = OrderedDict({
+        def update_state_dict():
+          state_dict["discriminator"] = OrderedDict({
             k: v.detach().cpu()
             for k, v in self.discriminator.state_dict().items()})
-        if self.pre_proj > 0:
+          if self.pre_proj > 0:
             state_dict["pre_projection"] = OrderedDict({
                 k: v.detach().cpu()
                 for k, v in self.pre_projection.state_dict().items()})
 
-    self.distribution = training_data.dataset.distribution
-    xlsx_path = './datasets/excel/' + name.split('_')[0] + '_distribution.xlsx'
-    try:
-        if self.distribution == 1:  # rejudge by image-level spectrogram analysis
+        self.distribution = training_data.dataset.distribution
+        xlsx_path = './datasets/excel/' + name.split('_')[0] + '_distribution.xlsx'
+        try:
+            if self.distribution == 1:  # rejudge by image-level spectrogram analysis
+                self.distribution = 1
+                self.svd = 1
+            elif self.distribution == 2:  # manifold
+                self.distribution = 0
+                self.svd = 0
+            elif self.distribution == 3:  # hypersphere
+                self.distribution = 0
+                self.svd = 1
+            elif self.distribution == 4:  # opposite choose by file
+                self.distribution = 0
+                df = pd.read_excel(xlsx_path)
+                self.svd = 1 - df.loc[df['Class'] == name, 'Distribution'].values[0]
+            else:  # choose by file
+                self.distribution = 0
+                df = pd.read_excel(xlsx_path)
+                self.svd = df.loc[df['Class'] == name, 'Distribution'].values[0]
+        except:
             self.distribution = 1
             self.svd = 1
-        elif self.distribution == 2:  # manifold
-            self.distribution = 0
-            self.svd = 0
-        elif self.distribution == 3:  # hypersphere
-            self.distribution = 0
-            self.svd = 1
-        elif self.distribution == 4:  # opposite choose by file
-            self.distribution = 0
-            df = pd.read_excel(xlsx_path)
-            self.svd = 1 - df.loc[df['Class'] == name, 'Distribution'].values[0]
-        else:  # choose by file
-            self.distribution = 0
-            df = pd.read_excel(xlsx_path)
-            self.svd = df.loc[df['Class'] == name, 'Distribution'].values[0]
-    except:
-        self.distribution = 1
-        self.svd = 1
 
     # judge by image-level spectrogram analysis
-    if self.distribution == 1:
-        self.forward_modules.eval()
-        with torch.no_grad():
-            for i, data in enumerate(training_data):
-                img = data["image"]
-                img = img.to(torch.float).to(self.device)
-                batch_mean = torch.mean(img, dim=0)
-                if i == 0:
-                    self.c = batch_mean
-                else:
-                    self.c += batch_mean
-            self.c /= len(training_data)
+        if self.distribution == 1:
+            self.forward_modules.eval()
+            with torch.no_grad():
+                for i, data in enumerate(training_data):
+                    img = data["image"]
+                    img = img.to(torch.float).to(self.device)
+                    batch_mean = torch.mean(img, dim=0)
+                    if i == 0:
+                        self.c = batch_mean
+                    else:
+                        self.c += batch_mean
+                self.c /= len(training_data)
 
-        avg_img = utils.torch_format_2_numpy_img(self.c.detach().cpu().numpy())
-        self.svd = utils.distribution_judge(avg_img, name)
-        os.makedirs(f'./results/judge/avg/{self.svd}', exist_ok=True)
-        cv2.imwrite(f'./results/judge/avg/{self.svd}/{name}.png', avg_img)
-        return self.svd
+            avg_img = utils.torch_format_2_numpy_img(self.c.detach().cpu().numpy())
+            self.svd = utils.distribution_judge(avg_img, name)
+            os.makedirs(f'./results/judge/avg/{self.svd}', exist_ok=True)
+            cv2.imwrite(f'./results/judge/avg/{self.svd}/{name}.png', avg_img)
+            return self.svd
 
-    pbar = tqdm.tqdm(range(self.meta_epochs), unit='epoch')
-    pbar_str1 = ""
-    best_record = None
-    for i_epoch in pbar:
-        self.forward_modules.eval()
-        with torch.no_grad():  # compute center
-            for i, data in enumerate(training_data):
-                img = data["image"]
-                img = img.to(torch.float).to(self.device)
-                if self.pre_proj > 0:
-                    outputs = self.pre_projection(self._embed(img, evaluation=False)[0])
+        pbar = tqdm.tqdm(range(self.meta_epochs), unit='epoch')
+        pbar_str1 = ""
+        best_record = None
+        for i_epoch in pbar:
+            self.forward_modules.eval()
+            with torch.no_grad():  # compute center
+                for i, data in enumerate(training_data):
+                    img = data["image"]
+                    img = img.to(torch.float).to(self.device)
+                    if self.pre_proj > 0:
+                        outputs = self.pre_projection(self._embed(img, evaluation=False)[0])
+                        outputs = outputs[0] if len(outputs) == 2 else outputs
+                    else:
+                        outputs = self._embed(img, evaluation=False)[0]
                     outputs = outputs[0] if len(outputs) == 2 else outputs
-                else:
-                    outputs = self._embed(img, evaluation=False)[0]
-                outputs = outputs[0] if len(outputs) == 2 else outputs
-                outputs = outputs.reshape(img.shape[0], -1, outputs.shape[-1])
+                    outputs = outputs.reshape(img.shape[0], -1, outputs.shape[-1])
 
-                batch_mean = torch.mean(outputs, dim=0)
-                if i == 0:
-                    self.c = batch_mean
-                else:
-                    self.c += batch_mean
-            self.c /= len(training_data)
+                    batch_mean = torch.mean(outputs, dim=0)
+                    if i == 0:
+                        self.c = batch_mean
+                    else:
+                        self.c += batch_mean
+                self.c /= len(training_data)
 
         pbar_str, pt, pf = self._train_discriminator(training_data, i_epoch, pbar, pbar_str1)
         update_state_dict()
@@ -317,7 +318,7 @@ def trainer(self, training_data, val_data, name):
             'best_record': best_record,
         }, ckpt_path_save)
 
-    return best_record
+        return best_record
 
 
     def _train_discriminator(self, input_data, cur_epoch, pbar, pbar_str1):

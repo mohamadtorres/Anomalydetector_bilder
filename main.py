@@ -1,5 +1,5 @@
 from datetime import datetime
-import torch
+
 import pandas as pd
 import os
 import logging
@@ -344,20 +344,6 @@ def run(
 
 
 if __name__ == "__main__":
-
-# Skapa en mapp där checkpoints kan sparas
-  checkpoint_dir = '/content/drive/MyDrive/checkpoints'
-  if not os.path.exists(checkpoint_dir):
-      os.makedirs(checkpoint_dir)
-
-  # Vid slutet av varje epoch, spara en checkpoint
-  torch.save({
-      'epoch': epoch,
-      'model_state_dict': model.state_dict(),
-      'optimizer_state_dict': optimizer.state_dict(),
-      'loss': loss,  # Om du vill logga förlusten
-  }, f'{checkpoint_dir}/checkpoint_epoch_{epoch}.pt')
-
     warnings.filterwarnings('ignore')
     logging.basicConfig(level=logging.INFO)
     LOGGER = logging.getLogger(__name__)
