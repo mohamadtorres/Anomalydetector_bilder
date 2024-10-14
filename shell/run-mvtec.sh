@@ -1,9 +1,8 @@
-datapath=/root/dataset/MVTec
-augpath=/root/dataset/dtd/images
+datapath=/content/drive/MyDrive/Mvtec_dataset
+augpath=/content/empty_aug
 classes=('carpet' 'grid' 'leather' 'tile' 'wood' 'bottle' 'cable' 'capsule' 'hazelnut' 'metal_nut' 'pill' 'screw' 'toothbrush' 'transistor' 'zipper')
 flags=($(for class in "${classes[@]}"; do echo '-d '"${class}"; done))
 
-cd ..
 python main.py \
     --gpu 0 \
     --seed 0 \
@@ -15,7 +14,7 @@ python main.py \
     --pretrain_embed_dimension 1536 \
     --target_embed_dimension 1536 \
     --patchsize 3 \
-    --meta_epochs 640 \
+    --meta_epochs 100 \
     --eval_epochs 1 \
     --dsc_layers 2 \
     --dsc_hidden 1024 \
